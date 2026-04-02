@@ -1,6 +1,6 @@
 # ==========================================
 # PROYECTO: Artillería Pro - Destrucción Total
-# VERSIÓN: 2.2
+# VERSIÓN: 2.3 (No Friendly Fire)
 # AUTORES: Alfredo & Gemi
 # ==========================================
 
@@ -11,7 +11,6 @@ import sys
 
 # --- Configuración ---
 ANCHO, ALTO = 1000, 700
-ALTO_JUEGO = 600
 GRAVEDAD = 0.25
 FPS = 60
 
@@ -23,7 +22,7 @@ BLANCO = (255, 255, 255)
 
 pygame.init()
 pantalla = pygame.display.set_mode((ANCHO, ALTO))
-pygame.display.set_caption(f"Artillería Pro V 2.2 - Alfredo & Gemi")
+pygame.display.set_caption(f"Artillería Pro V 2.3 - Alfredo & Gemi")
 fuente = pygame.font.SysFont("Arial", 20, bold=True)
 reloj = pygame.time.Clock()
 
@@ -41,26 +40,25 @@ def inicializar_terreno():
 inicializar_terreno()
 
 def punto_en_torreta(px, py, vertices):
-    """ Algoritmo Ray Casting para colisión exacta en el trapecio ABCDA """
     n = len(vertices)
     dentro = False
     p1x, p1y = vertices[0]
     for i in range(n + 1):
         p2x, p2y = vertices[i % n]
-        if py > min(p1y, p2y):
-            if py <= max(p1y, p2y):
-                if px <= max(p1x, p2x):
-                    if p1y != p2y:
-                        xinters = (py - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
-                    if p1x == p2x or px <= xinters:
-                        dentro = not dentro
+        if py > min(p1y, p2y) and py <= max(p1y, p2y):
+            if px <= max(p1x, p2x):
+                if p1y != p2y:
+                    xinters = (py - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                if p1x == p2x or px <= xinters:
+                    dentro = not dentro
         p1x, p1y = p2x, p2y
     return dentro
 
 class Proyectil:
-    def __init__(self, x, y, angulo, potencia, viento, color):
+    def __init__(self, x, y, angulo, potencia, viento, color, dueno):
         self.x, self.y = x, y
         self.color = color
+        self.dueno = dueno  # Guardamos quién disparó (t1 o t2)
         rad = math.radians(angulo)
         v0 = potencia * 0.15
         self.vx = v0 * math.cos(rad)
@@ -87,12 +85,8 @@ class Tanque:
         self.y = 500 + math.sin(x * 0.01) * 30
 
     def obtener_poligono_torreta(self):
-        return [
-            (self.x - 18, self.y - 21), # A
-            (self.x + 18, self.y - 21), # B
-            (self.x + 9, self.y - 46),  # C
-            (self.x - 9, self.y - 46)   # D
-        ]
+        return [(self.x - 18, self.y - 21), (self.x + 18, self.y - 21), 
+                (self.x + 9, self.y - 46), (self.x - 9, self.y - 46)]
 
     def obtener_rect_base(self):
         return pygame.Rect(self.x - 35, self.y - 21, 70, 21)
@@ -129,7 +123,8 @@ while True:
         if evento.type == pygame.KEYDOWN:
             if evento.key == pygame.K_SPACE and len(balas) == 0:
                 t_act = t1 if turno_p1 else t2
-                balas.append(Proyectil(t_act.x, t_act.y - 34, t_act.angulo, t_act.potencia, viento, t_act.color))
+                # Pasamos el tanque actual como 'dueno'
+                balas.append(Proyectil(t_act.x, t_act.y - 34, t_act.angulo, t_act.potencia, viento, t_act.color, t_act))
                 turno_p1 = not turno_p1
                 viento = random.uniform(-1.5, 1.5)
 
@@ -144,20 +139,24 @@ while True:
         b.actualizar()
         b.dibujar(pantalla)
         
-        impacto = False
-        # Revisar impacto en tanques
+        impacto_tanque = False
         for t_objetivo in [t1, t2]:
+            # REGLA CLAVE: Si el tanque es el dueño, ignoramos la colisión
+            if t_objetivo == b.dueno:
+                continue
+                
             if t_objetivo.obtener_rect_base().collidepoint(b.x, b.y) or \
                punto_en_torreta(b.x, b.y, t_objetivo.obtener_poligono_torreta()):
                 t_objetivo.vida -= 20
-                impacto = True
+                impacto_tanque = True
+                break
 
-        # Revisar impacto en terreno
-        if not impacto and 0 <= int(b.x) < ANCHO and 0 <= int(b.y) < ALTO:
+        impacto_terreno = False
+        if not impacto_tanque and 0 <= int(b.x) < ANCHO and 0 <= int(b.y) < ALTO:
             if terreno_surf.get_at((int(b.x), int(b.y)))[3] > 0:
-                impacto = True
+                impacto_terreno = True
 
-        if impacto:
+        if impacto_tanque or impacto_terreno:
             pygame.draw.circle(terreno_surf, (0, 0, 0, 0), (int(b.x), int(b.y)), 30)
             balas.remove(b)
         elif b.x < 0 or b.x > ANCHO or b.y > ALTO:
