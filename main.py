@@ -104,4 +104,94 @@ class Tanque:
         rad = math.radians(self.angulo)
         dest_x = pin_x + largo * math.cos(rad)
         dest_y = pin_y - largo * math.sin(rad)
-        pygame.draw.line(superficie, self.color
+        pygame.draw.line(superficie, self.color, (pin_x, pin_y), (dest_x, dest_y), 6)
+
+def dibujar_hud(t1, t2, viento, turno_p1):
+    # Panel inferior
+    pygame.draw.rect(pantalla, (30, 30, 30), (0, 600, ANCHO, 100))
+    
+    # Textos de estado
+    col_t1 = (255, 255, 255) if turno_p1 else (100, 100, 100)
+    col_t2 = (255, 255, 255) if not turno_p1 else (100, 100, 100)
+    
+    # Jugador 1
+    pygame.draw.rect(pantalla, AZUL_P1, (20, 615, 200, 20))
+    pygame.draw.rect(pantalla, (0, 255, 0), (20, 615, 2 * t1.vida, 20))
+    pantalla.blit(fuente.render(f"P1 - POT: {t1.potencia}  ANG: {t1.angulo}°", True, col_t1), (20, 645))
+    
+    # Jugador 2
+    pygame.draw.rect(pantalla, ROJO_P2, (780, 615, 200, 20))
+    pygame.draw.rect(pantalla, (0, 255, 0), (780, 615, 2 * t2.vida, 20))
+    pantalla.blit(fuente.render(f"P2 - POT: {t2.potencia}  ANG: {t2.angulo}°", True, col_t2), (780, 645))
+
+    # Viento e Instrucciones
+    dir_v = ">>" if viento > 0 else "<<"
+    pantalla.blit(fuente.render(f"VIENTO: {dir_v} {abs(viento):.2f}", True, (0, 200, 255)), (440, 620))
+    pantalla.blit(fuente.render("ESPACIO: Disparar | FLECHAS: Ajustar", True, (200, 200, 200)), (380, 660))
+
+# --- Inicio del Juego ---
+# Posicionar tanques en diferentes alturas del terreno
+t1 = Tanque(200, AZUL_P1, True)
+t2 = Tanque(800, ROJO_P2, False)
+viento = random.uniform(-1.5, 1.5)
+balas = []
+turno_p1 = True
+corriendo = True
+
+while corriendo:
+    pantalla.fill(COLOR_CIELO)
+    # Dibujar Terreno sinoidal
+    pygame.draw.polygon(pantalla, COLOR_TERRENO, puntos_terreno)
+    
+    for evento in pygame.event.get():
+        if evento.type == pygame.QUIT: corriendo = False
+        if evento.type == pygame.KEYDOWN:
+            if evento.key == pygame.K_SPACE and not balas:
+                t = t1 if turno_p1 else t2
+                # Ajuste de Y para el disparo (sale de la torreta)
+                balas.append(Proyectil(t.x, t.y - 34, t.angulo, t.potencia, viento, t.color))
+                turno_p1 = not turno_p1
+                viento = random.uniform(-1.5, 1.5)
+
+    # Controles de ángulo y potencia
+    keys = pygame.key.get_pressed()
+    actual = t1 if turno_p1 else t2
+    if keys[pygame.K_LEFT]: actual.angulo += 1
+    if keys[pygame.K_RIGHT]: actual.angulo -= 1
+    if keys[pygame.K_UP]: actual.potencia = min(100, actual.potencia + 1)
+    if keys[pygame.K_DOWN]: actual.potencia = max(10, actual.potencia - 1)
+
+    # Lógica de Proyectiles
+    for b in balas[:]:
+        b.actualizar()
+        b.dibujar(pantalla)
+        
+        # Colisión precisa con el terreno sinoidal
+        if 0 <= b.x < ANCHO:
+            altura_suelo_impacto = obtener_altura_suelo(b.x)
+            if b.y > altura_suelo_impacto:
+                for t in [t1, t2]:
+                    distancia = math.sqrt((b.x - t.x)**2 + (b.y - t.y)**2)
+                    if distancia < 50: t.vida -= 25 # Radio de daño ajustado
+                balas.remove(b)
+        elif b.y > ALTO_JUEGO or b.x < 0 or b.x > ANCHO:
+            # Eliminar si sale por los lados o abajo
+            if b in balas:
+                balas.remove(b)
+
+    t1.dibujar(pantalla)
+    t2.dibujar(pantalla)
+    dibujar_hud(t1, t2, viento, turno_p1)
+
+    # Fin del juego
+    if t1.vida <= 0 or t2.vida <= 0:
+        ganador = "JUGADOR 2" if t1.vida <= 0 else "JUGADOR 1"
+        pantalla.blit(fuente_grande.render(f"¡GANÓ EL {ganador}!", True, (0,0,0)), (350, 250))
+        pygame.display.flip()
+        pygame.time.delay(3000)
+        corriendo = False
+
+    pygame.display.flip()
+    reloj.tick(FPS)
+
+pygame.quit()
