@@ -1,6 +1,6 @@
 # ==========================================
 # PROYECTO: Artillería Pro - Destrucción Total
-# VERSIÓN: 2.3 (No Friendly Fire)
+# VERSIÓN: 2.4 (Explosiones y Victoria)
 # AUTORES: Alfredo & Gemi
 # ==========================================
 
@@ -14,18 +14,24 @@ ANCHO, ALTO = 1000, 700
 GRAVEDAD = 0.25
 FPS = 60
 
+# Colores
 AZUL_P1 = (20, 60, 120)
 ROJO_P2 = (180, 40, 40)
 COLOR_CIELO = (135, 206, 235)
 COLOR_TERRENO = (34, 139, 34)
+AMARILLO = (255, 255, 0)
+NARANJA = (255, 165, 0)
 BLANCO = (255, 255, 255)
+NEGRO = (0, 0, 0)
 
 pygame.init()
 pantalla = pygame.display.set_mode((ANCHO, ALTO))
-pygame.display.set_caption(f"Artillería Pro V 2.3 - Alfredo & Gemi")
+pygame.display.set_caption(f"Artillería Pro V 2.4 - Alfredo & Gemi")
 fuente = pygame.font.SysFont("Arial", 20, bold=True)
+fuente_grande = pygame.font.SysFont("Arial", 50, bold=True)
 reloj = pygame.time.Clock()
 
+# --- Superficie del Terreno ---
 terreno_surf = pygame.Surface((ANCHO, ALTO), pygame.SRCALPHA)
 
 def inicializar_terreno():
@@ -37,7 +43,26 @@ def inicializar_terreno():
     puntos.extend([(ANCHO, ALTO), (0, ALTO)])
     pygame.draw.polygon(terreno_surf, COLOR_TERRENO, puntos)
 
-inicializar_terreno()
+class Explosion:
+    def __init__(self, x, y):
+        self.x, self.y = x, y
+        self.radio = 3
+        self.max_radio = 30
+        self.activa = True
+
+    def actualizar(self):
+        self.radio += 2
+        if self.radio >= self.max_radio:
+            self.activa = False
+
+    def dibujar(self, surf):
+        # 3 anillos concéntricos con diferencia de 0.5px
+        radios = [self.radio, self.radio - 0.5, self.radio - 1.0]
+        colores = [AMARILLO, NARANJA, AMARILLO]
+        
+        for r, col in zip(radios, colores):
+            if r > 0:
+                pygame.draw.circle(surf, col, (int(self.x), int(self.y)), int(r), 1)
 
 def punto_en_torreta(px, py, vertices):
     n = len(vertices)
@@ -58,7 +83,7 @@ class Proyectil:
     def __init__(self, x, y, angulo, potencia, viento, color, dueno):
         self.x, self.y = x, y
         self.color = color
-        self.dueno = dueno  # Guardamos quién disparó (t1 o t2)
+        self.dueno = dueno
         rad = math.radians(angulo)
         v0 = potencia * 0.15
         self.vx = v0 * math.cos(rad)
@@ -73,16 +98,20 @@ class Proyectil:
 
     def dibujar(self, surf):
         pygame.draw.circle(surf, self.color, (int(self.x), int(self.y)), 5)
-        pygame.draw.circle(surf, (0, 0, 0), (int(self.x), int(self.y)), 5, 1)
+        pygame.draw.circle(surf, NEGRO, (int(self.x), int(self.y)), 5, 1)
 
 class Tanque:
     def __init__(self, x, color, es_p1):
         self.x = x
         self.color = color
+        self.es_p1 = es_p1
+        self.reiniciar()
+
+    def reiniciar(self):
         self.vida = 100
         self.potencia = 50
-        self.angulo = 45 if es_p1 else 135
-        self.y = 500 + math.sin(x * 0.01) * 30
+        self.angulo = 45 if self.es_p1 else 135
+        self.y = 500 + math.sin(self.x * 0.01) * 30
 
     def obtener_poligono_torreta(self):
         return [(self.x - 18, self.y - 21), (self.x + 18, self.y - 21), 
@@ -102,6 +131,7 @@ def dibujar_hud(t1, t2, viento, turno_p1):
     pygame.draw.rect(pantalla, (30, 30, 30), (0, 600, ANCHO, 100))
     c1 = BLANCO if turno_p1 else (120, 120, 120)
     c2 = BLANCO if not turno_p1 else (120, 120, 120)
+    # Barras de vida
     pygame.draw.rect(pantalla, (150, 0, 0), (20, 620, 200, 20))
     pygame.draw.rect(pantalla, (0, 200, 0), (20, 620, 2 * max(0, t1.vida), 20))
     pantalla.blit(fuente.render(f"P1: {t1.angulo}° | POT: {t1.potencia}", True, c1), (20, 650))
@@ -109,59 +139,113 @@ def dibujar_hud(t1, t2, viento, turno_p1):
     pygame.draw.rect(pantalla, (0, 200, 0), (780, 620, 2 * max(0, t2.vida), 20))
     pantalla.blit(fuente.render(f"P2: {t2.angulo}° | POT: {t2.potencia}", True, c2), (780, 650))
     txt_v = f"VIENTO: {'>>' if viento > 0 else '<<'} {abs(viento):.2f}"
-    pantalla.blit(fuente.render(txt_v, True, (0, 200, 255)), (420, 620))
+    pantalla.blit(fuente.render(txt_v, True, (0, 200, 255)), (440, 620))
 
+# --- Inicialización de Objetos ---
 t1, t2 = Tanque(200, AZUL_P1, True), Tanque(800, ROJO_P2, False)
-balas, viento, turno_p1 = [], random.uniform(-1.5, 1.5), True
+inicializar_terreno()
 
+def reset_game():
+    global t1, t2, balas, explosiones, viento, turno_p1, game_over
+    t1.reiniciar()
+    t2.reiniciar()
+    inicializar_terreno()
+    balas = []
+    explosiones = []
+    viento = random.uniform(-1.5, 1.5)
+    turno_p1 = True
+    game_over = False
+
+balas = []
+explosiones = []
+viento = random.uniform(-1.5, 1.5)
+turno_p1 = True
+game_over = False
+
+# --- Bucle Principal ---
 while True:
     pantalla.fill(COLOR_CIELO)
     pantalla.blit(terreno_surf, (0, 0))
     
     for evento in pygame.event.get():
         if evento.type == pygame.QUIT: pygame.quit(); sys.exit()
-        if evento.type == pygame.KEYDOWN:
-            if evento.key == pygame.K_SPACE and len(balas) == 0:
-                t_act = t1 if turno_p1 else t2
-                # Pasamos el tanque actual como 'dueno'
-                balas.append(Proyectil(t_act.x, t_act.y - 34, t_act.angulo, t_act.potencia, viento, t_act.color, t_act))
-                turno_p1 = not turno_p1
-                viento = random.uniform(-1.5, 1.5)
-
-    keys = pygame.key.get_pressed()
-    t_control = t1 if turno_p1 else t2
-    if keys[pygame.K_LEFT]: t_control.angulo += 1
-    if keys[pygame.K_RIGHT]: t_control.angulo -= 1
-    if keys[pygame.K_UP]: t_control.potencia = min(100, t_control.potencia + 1)
-    if keys[pygame.K_DOWN]: t_control.potencia = max(10, t_control.potencia - 1)
-
-    for b in balas[:]:
-        b.actualizar()
-        b.dibujar(pantalla)
         
-        impacto_tanque = False
-        for t_objetivo in [t1, t2]:
-            # REGLA CLAVE: Si el tanque es el dueño, ignoramos la colisión
-            if t_objetivo == b.dueno:
-                continue
-                
-            if t_objetivo.obtener_rect_base().collidepoint(b.x, b.y) or \
-               punto_en_torreta(b.x, b.y, t_objetivo.obtener_poligono_torreta()):
-                t_objetivo.vida -= 20
-                impacto_tanque = True
-                break
+        if game_over:
+            if evento.type == pygame.KEYDOWN:
+                if evento.key == pygame.K_s: reset_game()
+                if evento.key == pygame.K_n: pygame.quit(); sys.exit()
+        else:
+            if evento.type == pygame.KEYDOWN:
+                if evento.key == pygame.K_SPACE and len(balas) == 0:
+                    t_act = t1 if turno_p1 else t2
+                    balas.append(Proyectil(t_act.x, t_act.y - 34, t_act.angulo, t_act.potencia, viento, t_act.color, t_act))
+                    turno_p1 = not turno_p1
+                    viento = random.uniform(-1.5, 1.5)
 
-        impacto_terreno = False
-        if not impacto_tanque and 0 <= int(b.x) < ANCHO and 0 <= int(b.y) < ALTO:
-            if terreno_surf.get_at((int(b.x), int(b.y)))[3] > 0:
-                impacto_terreno = True
+    if not game_over:
+        keys = pygame.key.get_pressed()
+        t_control = t1 if turno_p1 else t2
+        if keys[pygame.K_LEFT]: t_control.angulo += 1
+        if keys[pygame.K_RIGHT]: t_control.angulo -= 1
+        if keys[pygame.K_UP]: t_control.potencia = min(100, t_control.potencia + 1)
+        if keys[pygame.K_DOWN]: t_control.potencia = max(10, t_control.potencia - 1)
 
-        if impacto_tanque or impacto_terreno:
-            pygame.draw.circle(terreno_surf, (0, 0, 0, 0), (int(b.x), int(b.y)), 30)
-            balas.remove(b)
-        elif b.x < 0 or b.x > ANCHO or b.y > ALTO:
-            balas.remove(b)
+        # Actualizar proyectiles
+        for b in balas[:]:
+            b.actualizar()
+            b.dibujar(pantalla)
+            
+            impacto = False
+            # Colisión tanques (Sin Friendly Fire)
+            for t_obj in [t1, t2]:
+                if t_obj != b.dueno:
+                    if t_obj.obtener_rect_base().collidepoint(b.x, b.y) or \
+                       punto_en_torreta(b.x, b.y, t_obj.obtener_poligono_torreta()):
+                        t_obj.vida -= 25
+                        impacto = True
+            
+            # Colisión terreno
+            if not impacto and 0 <= int(b.x) < ANCHO and 0 <= int(b.y) < ALTO:
+                if terreno_surf.get_at((int(b.x), int(b.y)))[3] > 0:
+                    impacto = True
 
-    t1.dibujar(pantalla); t2.dibujar(pantalla)
+            if impacto:
+                explosiones.append(Explosion(b.x, b.y))
+                pygame.draw.circle(terreno_surf, (0, 0, 0, 0), (int(b.x), int(b.y)), 30)
+                balas.remove(b)
+            elif b.x < 0 or b.x > ANCHO or b.y > ALTO:
+                balas.remove(b)
+
+        # Revisar fin del juego
+        if t1.vida <= 0 or t2.vida <= 0:
+            game_over = True
+
+    # Actualizar y dibujar explosiones
+    for exp in explosiones[:]:
+        exp.actualizar()
+        exp.dibujar(pantalla)
+        if not exp.activa: explosiones.remove(exp)
+
+    t1.dibujar(pantalla)
+    t2.dibujar(pantalla)
     dibujar_hud(t1, t2, viento, turno_p1)
-    pygame.display.flip(); reloj.tick(FPS)
+
+    if game_over:
+        # Pantalla de Game Over
+        overlay = pygame.Surface((ANCHO, ALTO), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        pantalla.blit(overlay, (0,0))
+        
+        ganador = "AZUL" if t2.vida <= 0 else "ROJO"
+        color_ganador = AZUL_P1 if t2.vida <= 0 else ROJO_P2
+        
+        msg1 = fuente_grande.render("GAME OVER", True, BLANCO)
+        msg2 = fuente.render(f"GANADOR: TANQUE {ganador}", True, color_ganador)
+        msg3 = fuente.render("¿Otra partidita? (S/N)", True, BLANCO)
+        
+        pantalla.blit(msg1, (ANCHO//2 - 140, 250))
+        pantalla.blit(msg2, (ANCHO//2 - 110, 320))
+        pantalla.blit(msg3, (ANCHO//2 - 100, 380))
+
+    pygame.display.flip()
+    reloj.tick(FPS)
