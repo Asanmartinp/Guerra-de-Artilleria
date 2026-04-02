@@ -123,4 +123,15 @@ while ejecutando:
     pantalla.blit(superficie_terreno, (0, 0)) # Terreno
     
     tanque1.dibujar(pantalla) # Jugador 1
-    tanque2.
+    tanque2.dibujar(pantalla) # Jugador 2
+
+    # Mostrar Info de HUD (Ángulo y Potencia)
+    texto_p1 = fuente.render(f"P1 (Gris): Áng:{tanque1.angulo} Pot:{tanque1.potencia}", True, (0,0,0))
+    texto_p2 = fuente.render(f"P2 (Rojo): Áng:{tanque2.angulo} Pot:{tanque2.potencia}", True, (0,0,0))
+    pantalla.blit(texto_p1, (10, 10))
+    pantalla.blit(texto_p2, (ANCHO - 250, 10))
+    
+    pygame.display.flip()
+    reloj.tick(60)
+
+pygame.quit()
